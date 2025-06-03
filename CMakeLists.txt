@@ -60,8 +60,10 @@ target_link_libraries(${PROJECT_NAME}
         hardware_pio
         hardware_pwm
         hardware_adc
-        pico_cyw43_arch_none
         pico_cyw43_arch_lwip_threadsafe_background
+        pico_lwip_mqtt
+        pico_mbedtls
+        pico_lwip_mbedtls
         )
 
 pico_enable_stdio_usb(${PROJECT_NAME} 1)
