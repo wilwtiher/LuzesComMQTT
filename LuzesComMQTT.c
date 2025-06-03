@@ -54,11 +54,6 @@ int sled_b = 5; // Intensidade do azul salvar
 // Botoes
 #define botao_pinA 5 // Botão A = 5, Botão B = 6 , BotãoJoy = 22
 #define botao_pinB 6 // Botão A = 5, Botão B = 6 , BotãoJoy = 22
-// Joysticks
-#define VRY_PIN 26 // Pino do Joystick Y
-#define VRX_PIN 27 // Pino do Joystick X
-// Buzzer
-#define buzzer 10 // Pino do buzzer A
 
 // Definição dos pinos dos LEDs
 #define LED_PIN CYW43_WL_GPIO_LED_PIN // GPIO do CI CYW43
@@ -126,26 +121,11 @@ void set_one_led(uint8_t r, uint8_t g, uint8_t b)
     }
 }
 
-// Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
-void gpio_led_bitdog(void);
-
-// Função de callback ao aceitar conexões TCP
-static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
-
-// Função de callback para processar requisições HTTP
-static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
-
-// Tratamento do request do usuário
-void user_request(char **request);
-
 // Função principal
 int main()
 {
     // Inicializa todos os tipos de bibliotecas stdio padrão presentes que estão ligados ao binário.
     stdio_init_all();
-
-    // Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
-    gpio_led_bitdog();
 
     // Inicializar a matriz de LEDs
     PIO pio = pio0;
@@ -157,70 +137,12 @@ int main()
     adc_init();
     adc_gpio_init(28); // GPIO 28 como entrada analógica
 
-    // Inicializa a arquitetura do cyw43
-    while (cyw43_arch_init())
-    {
-        printf("Falha ao inicializar Wi-Fi\n");
-        sleep_ms(100);
-        return -1;
-    }
-
-    // GPIO do CI CYW43 em nível baixo
-    cyw43_arch_gpio_put(LED_PIN, 0);
-
-    // Ativa o Wi-Fi no modo Station, de modo a que possam ser feitas ligações a outros pontos de acesso Wi-Fi.
-    cyw43_arch_enable_sta_mode();
-
-    // Conectar à rede WiFI - fazer um loop até que esteja conectado
-    printf("Conectando ao Wi-Fi...\n");
-    while (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 20000))
-    {
-        printf("Falha ao conectar ao Wi-Fi\n");
-        sleep_ms(100);
-        return -1;
-    }
-    printf("Conectado ao Wi-Fi\n");
-
-    // Caso seja a interface de rede padrão - imprimir o IP do dispositivo.
-    if (netif_default)
-    {
-        printf("IP do dispositivo: %s\n", ipaddr_ntoa(&netif_default->ip_addr));
-    }
-
-    // Configura o servidor TCP - cria novos PCBs TCP. É o primeiro passo para estabelecer uma conexão TCP.
-    struct tcp_pcb *server = tcp_new();
-    if (!server)
-    {
-        printf("Falha ao criar servidor TCP\n");
-        return -1;
-    }
-
-    // vincula um PCB (Protocol Control Block) TCP a um endereço IP e porta específicos.
-    if (tcp_bind(server, IP_ADDR_ANY, 80) != ERR_OK)
-    {
-        printf("Falha ao associar servidor TCP à porta 80\n");
-        return -1;
-    }
-
-    // Coloca um PCB (Protocol Control Block) TCP em modo de escuta, permitindo que ele aceite conexões de entrada.
-    server = tcp_listen(server);
-
-    // Define uma função de callback para aceitar conexões TCP de entrada. É um passo importante na configuração de servidores TCP.
-    tcp_accept(server, tcp_server_accept);
-    printf("Servidor ouvindo na porta 80\n");
-
     // Inicializa o conversor ADC
     adc_init();
     adc_set_temp_sensor_enabled(true);
     adc_select_input(2);
     while (true)
     {
-        /*
-         * Efetuar o processamento exigido pelo cyw43_driver ou pela stack TCP/IP.
-         * Este método deve ser chamado periodicamente a partir do ciclo principal
-         * quando se utiliza um estilo de sondagem pico_cyw43_arch
-         */
-        cyw43_arch_poll(); // Necessário para manter o Wi-Fi ativo
         if (LDR)
         {
             uint16_t valorLDR = adc_read();
@@ -234,37 +156,10 @@ int main()
         }
         sleep_ms(50); // Reduz o uso da CPU
     }
-
-    // Desligar a arquitetura CYW43.
-    cyw43_arch_deinit();
     return 0;
 }
 
 // -------------------------------------- Funções ---------------------------------
-
-// Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
-void gpio_led_bitdog(void)
-{
-    // Configuração dos LEDs como saída
-    gpio_init(led_BLUE);
-    gpio_set_dir(led_BLUE, GPIO_OUT);
-    gpio_put(led_BLUE, false);
-
-    gpio_init(led_GREEN);
-    gpio_set_dir(led_GREEN, GPIO_OUT);
-    gpio_put(led_GREEN, false);
-
-    gpio_init(led_RED);
-    gpio_set_dir(led_RED, GPIO_OUT);
-    gpio_put(led_RED, false);
-}
-
-// Função de callback ao aceitar conexões TCP
-static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
-{
-    tcp_recv(newpcb, tcp_server_recv);
-    return ERR_OK;
-}
 
 // Tratamento do request do usuário - digite aqui
 void user_request(char **request)
@@ -319,79 +214,3 @@ void user_request(char **request)
         }
     }
 };
-
-// Função de callback para processar requisições HTTP
-static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
-{
-    if (!p)
-    {
-        tcp_close(tpcb);
-        tcp_recv(tpcb, NULL);
-        return ERR_OK;
-    }
-
-    // Alocação do request na memória dinámica
-    char *request = (char *)malloc(p->len + 1);
-    memcpy(request, p->payload, p->len);
-    request[p->len] = '\0';
-
-    printf("Request: %s\n", request);
-
-    // Tratamento de request - Controle dos LEDs
-    user_request(&request);
-
-    // Cria a resposta HTML
-    char html[1024];
-
-    // Instruções html do webserver
-    snprintf(html, sizeof(html),
-             "HTTP/1.1 200 OK\r\n"
-             "Content-Type: text/html\r\n"
-             "\r\n"
-             "<!DOCTYPE html>\n"
-             "<html>\n"
-             "<head><title>L</title>\n"
-             "<style>\n"
-             "body { background: #b5e5fb; font-family: Arial; text-align: center; margin-top: 50px; }\n"
-             "input, select { font-size: 20px; margin: 10px; }\n"
-             "</style>\n"
-             "<script>\n"
-             "function enviarNumero() {\n"
-             "  let valor = document.getElementById('numero').value;\n"
-             "  if (valor >= 0 && valor <= 255) fetch('/valor?numero=' + valor);\n"
-             "  else alert('0 a 255');\n"
-             "}\n"
-             "function enviarSeletor(v) { fetch('/seletor?valor=' + v); }\n"
-             "function toggleLDR(v) { fetch('/ldr?valor=' + v); }\n"
-             "</script>\n"
-             "</head>\n"
-             "<body>\n"
-             "<h2>Luz</h2>\n"
-             "<input id=\"numero\" type=\"number\" min=\"0\" max=\"255\" placeholder=\"0-255\" onblur=\"enviarNumero()\">\n"
-             "<br>\n"
-             "<select onchange=\"enviarSeletor(this.value)\">\n"
-             "  <option value=\"0\">0</option>\n"
-             "  <option value=\"1\">1</option>\n"
-             "  <option value=\"2\">2</option>\n"
-             "</select>\n"
-             "<br>\n"
-             "<label>LDR:</label>\n"
-             "<select onchange=\"toggleLDR(this.value)\">\n"
-             "  <option value=\"1\">On</option>\n"
-             "  <option value=\"0\">Off</option>\n"
-             "</select>\n"
-             "</body></html>");
-
-    tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
-
-    // Envia a mensagem
-    tcp_output(tpcb);
-
-    // libera memória alocada dinamicamente
-    free(request);
-
-    // libera um buffer de pacote (pbuf) que foi alocado anteriormente
-    pbuf_free(p);
-
-    return ERR_OK;
-}
