@@ -48,7 +48,7 @@ O objetivo do projeto é aprimorar o conhecimento do MQTT utilizando algum proje
 - O usuário terá retorno via MQTT.
 
 ## Tópicos MQTT usados:
-- /ldr: Alterá a automação com LDR.
+- /ldr: Altera a automação com LDR.
 - /iluminacao: retorno do valor do LDR.
 - /ping: Retorna no /uptime o tempo ligado, e serva para passar a intensidade das lâmpadas.
 - /print: Imprime na USB o valor passado, e recebe um valor de 0 a 3 para alterar a quantidade de lâmpadas ligadas. Respectivamente 1, 5, 9, 13.
