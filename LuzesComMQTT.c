@@ -41,6 +41,7 @@
 #define NUM_PIXELS 25
 #define WS2812_PIN 7
 // Armazenar a cor (Entre 0 e 255 para intensidade)
+int intensidade = 5;
 int led_r = 5;  // Intensidade do vermelho
 int led_g = 5;  // Intensidade do verde
 int led_b = 5;  // Intensidade do azul
@@ -67,6 +68,7 @@ bool cor = true;
 bool alarme = false;
 bool LDR = true;
 static volatile int8_t contador = 0; // Variável para qual frame será chamado da matriz de LEDs
+
 // Variável para os frames da matriz de LEDs
 bool led_buffer[4][NUM_PIXELS] = {
     {0, 0, 0, 0, 0,
@@ -309,10 +311,6 @@ int main()
 
     adc_init();
     adc_gpio_init(28); // GPIO 28 como entrada analógica
-
-    // Inicializa o conversor ADC
-    adc_init();
-    adc_set_temp_sensor_enabled(true);
     adc_select_input(2);
 
     // Conectar à rede WiFI - fazer um loop até que esteja conectado
@@ -340,13 +338,13 @@ int main()
         if (LDR)
         {
             uint16_t valorLDR = adc_read();
-            uint16_t intensidade = (valorLDR * 0.03); // Normalizado para 0–120
-            led_r = intensidade;
-            led_g = intensidade;
-            led_b = intensidade;
+            uint16_t ldrintensidade = (valorLDR * 0.02); // Normalizado para 0–120
+            led_r = ldrintensidade;
+            led_g = ldrintensidade;
+            led_b = ldrintensidade;
             set_one_led(led_r, led_g, led_b);
-            printf("Valor ldr: %d\n", intensidade);
-            sleep_ms(150); // Atualiza menos
+            printf("Valor ldr: %d\n", ldrintensidade);
+            sleep_ms(250); // Atualiza menos
         }
         sleep_ms(50); // Reduz o uso da CPU
         cyw43_arch_wait_for_work_until(make_timeout_time_ms(10000));
@@ -354,26 +352,6 @@ int main()
 
     INFO_printf("mqtt client exiting\n");
     return 0;
-}
-
-/* References for this implementation:
- * raspberry-pi-pico-c-sdk.pdf, Section '4.1.1. hardware_adc'
- * pico-examples/adc/adc_console/adc_console.c */
-static float read_onboard_temperature(const char unit) {
-
-    /* 12-bit conversion, assume max value == ADC_VREF == 3.3 V */
-    const float conversionFactor = 3.3f / (1 << 12);
-
-    float adc = (float)adc_read() * conversionFactor;
-    float tempC = 27.0f - (adc - 0.706f) / 0.001721f;
-
-    if (unit == 'C' || unit != 'F') {
-        return tempC;
-    } else if (unit == 'F') {
-        return tempC * 9 / 5 + 32;
-    }
-
-    return -1.0f;
 }
 
 // Requisição para publicar
@@ -406,11 +384,11 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on) {
     mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/state"), message, strlen(message), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
 }
 
-// Publicar temperatura
+// Publicar ldr (iluminacao)
 static void publish_temperature(MQTT_CLIENT_DATA_T *state) {
     static float old_temperature;
-    const char *temperature_key = full_topic(state, "/temperature");
-    float temperature = read_onboard_temperature(TEMPERATURE_UNITS);
+    const char *temperature_key = full_topic(state, "/iluminacao");
+    float temperature = adc_read();
     if (temperature != old_temperature) {
         old_temperature = temperature;
         // Publish temperature on /temperature topic
@@ -447,11 +425,14 @@ static void unsub_request_cb(void *arg, err_t err) {
 
 // Tópicos de assinatura
 static void sub_unsub_topics(MQTT_CLIENT_DATA_T* state, bool sub) {
+    // Topicos de ricardo
     mqtt_request_cb_t cb = sub ? sub_request_cb : unsub_request_cb;
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/print"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/ping"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/exit"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
+    // Meus Topicos
+    mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/ldr"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
 }
 
 // Dados de entrada MQTT
@@ -474,14 +455,24 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
         else if (lwip_stricmp((const char *)state->data, "Off") == 0 || strcmp((const char *)state->data, "0") == 0)
             control_led(state, false);
     } else if (strcmp(basic_topic, "/print") == 0) {
-        INFO_printf("%.*s\n", len, data);
+        contador = atoi((const char *)state->data);
+        printf("Valor contador: %d\n", contador);
+        set_one_led(intensidade, intensidade, intensidade);
     } else if (strcmp(basic_topic, "/ping") == 0) {
+        intensidade = atoi((const char *)state->data);
+        printf("Valor intensidade: %d\n", intensidade);
+        set_one_led(intensidade, intensidade, intensidade);
         char buf[11];
         snprintf(buf, sizeof(buf), "%u", to_ms_since_boot(get_absolute_time()) / 1000);
         mqtt_publish(state->mqtt_client_inst, full_topic(state, "/uptime"), buf, strlen(buf), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
     } else if (strcmp(basic_topic, "/exit") == 0) {
         state->stop_client = true; // stop the client when ALL subscriptions are stopped
         sub_unsub_topics(state, false); // unsubscribe
+// Meus Topicos
+    } else if (strcmp(basic_topic, "/ldr") == 0){
+        LDR = atoi((const char *)state->data);
+        printf("switch ldr: %d\n", LDR);
+        printf("Topico: %s\n", basic_topic);
     }
 }
 
@@ -562,51 +553,3 @@ static void dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg) 
         panic("dns request failed");
     }
 }
-
-
-// -------------------------------------- Funções ---------------------------------
-
-// Tratamento do request do usuário - digite aqui
-void atualizar_led(char **request)
-{
-    if (strstr(*request, "GET /valor?numero=") != NULL)
-    {
-        // Extrai o valor da URL
-        char *valorStr = strstr(*request, "/valor?numero=") + strlen("/valor?numero=");
-        int valor = atoi(valorStr);
-        printf("Valor recebido: %d\n", valor);
-
-        // Lógica de controle com o valor
-        sled_r = valor;
-        sled_g = valor;
-        sled_b = valor;
-        led_r = sled_r;
-        led_g = sled_g;
-        led_b = sled_b;
-        set_one_led(led_r, led_g, led_b);
-    }
-    else if (strstr(*request, "GET /seletor?valor=") != NULL)
-    {
-        // Extrai o valor do seletor da URL
-        char *valorStr = strstr(*request, "/seletor?valor=") + strlen("/seletor?valor=");
-        int valor = atoi(valorStr);
-        printf("Valor do seletor: %d\n", valor);
-        // Aqui você pode tratar o valor selecionado
-        contador = valor;
-        set_one_led(led_r, led_g, led_b);
-    }
-    else if (strstr(*request, "GET /ldr?valor=") != NULL)
-    {
-        char *valorStr = strstr(*request, "/ldr?valor=") + strlen("/ldr?valor=");
-        int valor = atoi(valorStr);
-        LDR = (valor == 1);
-        printf("Modo LDR: %d\n", LDR);
-        if (!LDR)
-        {
-            led_r = sled_r;
-            led_g = sled_g;
-            led_b = sled_b;
-            set_one_led(led_r, led_g, led_b);
-        }
-    }
-};
